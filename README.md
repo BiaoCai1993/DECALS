@@ -25,4 +25,5 @@ This folder contains all the utilized data and output from both simulation and r
 3. rosmap: All the utilized data and output in ROSMAP study (Section 4.2) are included in this folder.
 4. gtex: All the utilized data and output in GTEx study (Section 4.3) are included in this folder.
 5. sc: All the utilized data and output in the supplementary material are included in this folder.
+6. sim2-rna-sieve: All the output of RNA-Sieve in simulation setting 2 (Section 3.3) are included in this folder.
 
