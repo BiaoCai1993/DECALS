@@ -381,7 +381,7 @@ rmultigamma <- function(n,p,cor_mat,shape,scale){
 
 data_gen2 <- function(frac0,sig,sigma_ols0,seedN){
   p=nrow(sig)
-  
+  W=t(sig)
   Pi=t(frac0)
   n=nrow(frac0)
   
