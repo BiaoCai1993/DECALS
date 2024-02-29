@@ -16,6 +16,10 @@ CTS_proportion_var=propor_cov0(W=t(sig),sigma_all=sigma_ols,propor_all=t(CTS_pro
 dim(CTS_proportion_var) # CTS_proportions_var * samples
 decals_res=list(CTS_proportion=CTS_proportion,CTS_proportion_var=CTS_proportion_var)
 
+# repeat this 100 times with seedN from 1 to 100
+# For your convenience, the replication result can be obtained by the "set1.R" and "set1.txt" in the supp.
+# Once you have the result, the code "vioplot_sim1_2.R" can be used to get the plot of coverage probability.
+
 ols_res=ols_result(bulk=bulk,sig=sig)
 
 
@@ -38,8 +42,6 @@ R01[which(net0!=0)]=1
 mead_res=MEAD_est(y=bulk,X=sig,Vg=matrix(0,300,3),R01=R01)
 
 
-#repeat this 100 times with seedN from 1 to 100
-#For your convenience, the replication result can be obtained by the "set1.R" and "set1.txt" in the supp.
 
 n=500
 k=3
