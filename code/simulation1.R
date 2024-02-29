@@ -39,6 +39,7 @@ mead_res=MEAD_est(y=bulk,X=sig,Vg=matrix(0,300,3),R01=R01)
 
 
 #repeat this 100 times with seedN from 1 to 100
+#For your convenience, the replication result can be obtained by the "set1.R" and "set1.txt" in the supp.
 
 n=500
 k=3
