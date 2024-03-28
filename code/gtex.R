@@ -10,7 +10,7 @@ load(file=paste0(path,"data/gtex/sig.RData"))
 ########### CTS proportion estimation ##############
 CTS_proportion=constraint_ols(sig=sig,bulk=bulk)
 dim(CTS_proportion) # samples * CTS_proportions
-cell_names=c("Ast","End","Mic","Ext","Inh","Pli")
+cell_names=c("Ast","End","Mic","Ext","Inh","Oli")
 colnames(CTS_proportion)=cell_names
 boxplot(CTS_proportion,outline=FALSE,ylab="cell type proportions",ylim=c(0,0.8))
 
