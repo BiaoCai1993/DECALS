@@ -4,30 +4,50 @@ source(paste0(path,"code/DECALS.R"))
 ########################################################
 ################### Simulation 2 #######################
 ########################################################
-load(file=paste0(path,"data/sim2/sig.RData"))
-load(file=paste0(path,"data/sim2/frac0.RData"))
-load(file=paste0(path,"data/sim2/sigma_ols0.RData"))
+load(file=paste0(path,"data/sim2/sig.RData")) # the signature matrix in rosmap analysis
+load(file=paste0(path,"data/sim2/frac0.RData")) # the estimated CTS proportion in rosmap analysis
+load(file=paste0(path,"data/sim2/sigma_ols0.RData")) # the estimated CTS covariance in rosmap analysis
 
-sim_data2 = data_gen2(frac0,sig,sigma_ols0,seedN=1)
+############ data generation ##################
+sim_data2 = data_gen2(frac0,sig,sigma_ols0,seedN=1) 
 
-bulk=sim_data2$bulk
-sig=sim_data2$sig
+bulk=sim_data2$bulk # simulated bulk rna-seq data, p*n
+sig=sim_data2$sig # simulated signature matrix, p*K
+
+############ Estimation ##################
 CTS_proportion=constraint_ols(sig=sig,bulk=bulk)
+# bulk: bulk rna-seq data
+# sig: signature matrix
+# output: cell type sepcific proportions, n*K
+
 lambda_ols <- tune_select(y_all=bulk,W=t(sig),propor_est=t(CTS_proportion),lambda_set=seq(0,0.5,by=0.025),tune_method="sequential")
+# select tuning parameter
+# lambda_set: the candidate values for tuning parameters
+# output: a list. The first element is tuning parameter value. The second one the related errors.
+
 sigma_ols0<-sigma_upt0(propor_all=t(CTS_proportion),y_all=bulk,W=t(sig),lambda_all=lambda_ols[[1]])
+# lambda_all: the tuning parameters used to estimate cell type specific covariance
+# output: a list. Each element is one covariance matrix.
 
 CTS_proportion_var=propor_cov0(W=t(sig),sigma_all=sigma_ols0,propor_all=t(CTS_proportion))
+# output: a matrix for the variance of cell type specific proportions.
+# Each row is one bulk sample. Each column is one cell type.
+
 dim(CTS_proportion_var) # CTS_proportions_var * samples
+
+# put all results in one list. The first element is CTS proportions and the second one is the related variance.
 decals_res=list(CTS_proportion=CTS_proportion,CTS_proportion_var=CTS_proportion_var)
 
 ##############################################################################################################
-# Repeat this 100 times with seedN from 1 to 100.
+# Repeat this 100 times with seedN from 1 to 100
 # For your convenience, the replication result can be obtained by the "set2.R" and "set2.txt" in the supp.
 # Once you have the result, the code "vioplot_sim1_2.R" can be used to get the plot of coverage probability.
 ##############################################################################################################
 
+################# get the result for OLS #####################
 ols_res=ols_result(bulk=bulk,sig=sig)
 
+################# get the result for MEAD ###################
 sigma1=cor_est(sigma_ols0[[1]] )
 sigma2=cor_est(sigma_ols0[[2]] )
 sigma3=cor_est(sigma_ols0[[3]] )
@@ -38,13 +58,13 @@ library(MEAD)
 p=159
 R01=matrix(0,p,p)
 net0=sigma1+sigma2+sigma3+sigma4+sigma5
-R01[which(net0!=0)]=1
+R01[which(net0!=0)]=1 # the true binary network structure
 mead_res=MEAD_est(y=bulk,X=sig,Vg=matrix(0,159,5),R01=R01)
 
 
 # RNA-Sieve is achieved by python, the code and result is in the folder "sim2-rna-sieve". 
 
-##################################################################
+################# coverage probability ##########################
 
 n=541
 k=5
@@ -69,8 +89,8 @@ Pi=t(frac0)
 
 
 alpha=0.975
-cp_decals=NULL
-for(j in 1:541){
+cp_decals=NULL # coverage probability for decals
+for(j in 1:541){ 
   int_lower=Pi_decals_all[,j,]-qnorm(alpha)*sd_decals_all[,j,]
   int_upper=Pi_decals_all[,j,]+qnorm(alpha)*sd_decals_all[,j,]
   
@@ -82,7 +102,7 @@ for(j in 1:541){
   cp_decals=rbind(cp_decals,tab1)
 }
 
-cp_ols=NULL
+cp_ols=NULL # coverage probability for ols
 for(j in 1:541){
   int_lower=Pi_ols_all[,j,]-qnorm(alpha)*sd_ols_all[,j,]
   int_upper=Pi_ols_all[,j,]+qnorm(alpha)*sd_ols_all[,j,]
@@ -96,7 +116,7 @@ for(j in 1:541){
 }
 
 
-cp_mead=NULL
+cp_mead=NULL # coverage probability for mead
 for(j in 1:541){
   int_lower=Pi_mead_all[,j,]-qnorm(alpha)*sd_mead_all[,j,]
   int_upper=Pi_mead_all[,j,]+qnorm(alpha)*sd_mead_all[,j,]
@@ -143,7 +163,7 @@ for(i in 1:length(id1)){
 }
 
 
-cp_rna_sieve=NULL
+cp_rna_sieve=NULL # coverage probability for rna-sieve
 for(j in 1:541){
   int_lower=ci_lower_all[,j,]
   int_upper=ci_upper_all[,j,]
@@ -159,7 +179,7 @@ cp_rna_sieve[is.na(cp_rna_sieve)]=0
 
 library(vioplot)
 par(mfrow=c(2,3))
-for(k in 1:5){
+for(k in 1:5){ # vioplot of coverage probability
   result=cbind(cp_ols[,k],cp_rna_sieve[,k],cp_mead[,k],cp_decals[,k])
   colnames(result)=c("OLS","RNA-Sieve","MEAD","DECALS")
   vioplot(result,col=c("grey","lightgreen","lightcoral","skyblue"),#axes=FALSE,
@@ -178,20 +198,39 @@ load(file=paste0(path,"data/sim2/gaussian/sig.RData"))
 load(file=paste0(path,"data/sim2/gaussian/frac0.RData"))
 load(file=paste0(path,"data/sim2/gaussian/sigma_ols0.RData"))
 
+############ data generation ##################
 sim_data3 = data_gen3(frac0,sig,sigma_ols0,seedN=1)
 
-bulk=sim_data3$bulk
-sig=sim_data3$sig
+bulk=sim_data3$bulk # simulated bulk rna-seq data, p*n
+sig=sim_data3$sig # simulated signature matrix, p*K
+
+############ Estimation ##################
 CTS_proportion=constraint_ols(sig=sig,bulk=bulk)
+# bulk: bulk rna-seq data
+# sig: signature matrix
+# output: cell type sepcific proportions, n*K
+
 lambda_ols <- tune_select(y_all=bulk,W=t(sig),propor_est=t(CTS_proportion),lambda_set=seq(0,0.5,by=0.025),tune_method="sequential")
+# select tuning parameter
+# lambda_set: the candidate values for tuning parameters
+# output: a list. The first element is tuning parameter value. The second one the related errors.
+
 sigma_ols0<-sigma_upt0(propor_all=t(CTS_proportion),y_all=bulk,W=t(sig),lambda_all=lambda_ols[[1]])
+# lambda_all: the tuning parameters used to estimate cell type specific covariance
+# output: a list. Each element is one covariance matrix.
 
 CTS_proportion_var=propor_cov0(W=t(sig),sigma_all=sigma_ols,propor_all=t(CTS_proportion))
+# output: a matrix for the variance of cell type specific proportions.
+# Each row is one bulk sample. Each column is one cell type.
+
 dim(CTS_proportion_var) # CTS_proportions_var * samples
+# put all results in one list. The first element is CTS proportions and the second one is the related variance.
 decals_res=list(CTS_proportion=CTS_proportion,CTS_proportion_var=CTS_proportion_var)
 
+################# get the result for OLS #####################
 ols_res=ols_result(bulk=bulk,sig=sig)
 
+################# get the result for MEAD ###################
 sigma1=cor_est(sigma_ols0[[1]] )
 sigma2=cor_est(sigma_ols0[[2]] )
 sigma3=cor_est(sigma_ols0[[3]] )
@@ -201,7 +240,7 @@ sigma5=cor_est(sigma_ols0[[5]] )
 p=159
 R01=matrix(0,p,p)
 net0=sigma1+sigma2+sigma3+sigma4+sigma5
-R01[which(net0!=0)]=1
+R01[which(net0!=0)]=1 # the true binary network structure
 mead_res=MEAD_est(y=bulk,X=sig,Vg=matrix(0,159,5),R01=R01)
 
 
@@ -233,7 +272,7 @@ Pi=t(frac0)
 
 
 alpha=0.975
-cp_decals=NULL
+cp_decals=NULL # coverage probability for decals
 for(j in 1:541){
   int_lower=Pi_decals_all[,j,]-qnorm(alpha)*sd_decals_all[,j,]
   int_upper=Pi_decals_all[,j,]+qnorm(alpha)*sd_decals_all[,j,]
@@ -246,7 +285,7 @@ for(j in 1:541){
   cp_decals=rbind(cp_decals,tab1)
 }
 
-cp_ols=NULL
+cp_ols=NULL # coverage probability for ols
 for(j in 1:541){
   int_lower=Pi_ols_all[,j,]-qnorm(alpha)*sd_ols_all[,j,]
   int_upper=Pi_ols_all[,j,]+qnorm(alpha)*sd_ols_all[,j,]
@@ -260,7 +299,7 @@ for(j in 1:541){
 }
 
 
-cp_mead=NULL
+cp_mead=NULL # coverage probability for mead
 for(j in 1:541){
   int_lower=Pi_mead_all[,j,]-qnorm(alpha)*sd_mead_all[,j,]
   int_upper=Pi_mead_all[,j,]+qnorm(alpha)*sd_mead_all[,j,]
@@ -307,7 +346,7 @@ for(i in 1:length(id1)){
 }
 
 
-cp_rna_sieve=NULL
+cp_rna_sieve=NULL # coverage probability for rna_sieve
 for(j in 1:541){
   int_lower=ci_lower_all[,j,]
   int_upper=ci_upper_all[,j,]
@@ -323,7 +362,7 @@ cp_rna_sieve[is.na(cp_rna_sieve)]=0
 
 library(vioplot)
 par(mfrow=c(2,3))
-for(k in 1:5){
+for(k in 1:5){ # vioplot of coverage probability
   result=cbind(cp_ols[,k],cp_rna_sieve[,k],cp_mead[,k],cp_decals[,k])
   colnames(result)=c("OLS","RNA-Sieve","MEAD","DECALS")
   vioplot(result,col=c("grey","lightgreen","lightcoral","skyblue"),#axes=FALSE,
