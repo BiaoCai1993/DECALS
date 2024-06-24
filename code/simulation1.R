@@ -4,16 +4,39 @@ source(paste0(path,"code/DECALS.R"))
 ########################################################
 ################### Simulation 1 #######################
 ########################################################
+
+############ data generation ##################
 seedN=1
-sim_data1=data_gen1(n=500,p=300,k=3,seedN=seedN)
-bulk=sim_data1$bulk
-sig=sim_data1$sig
+sim_data1=data_gen1(n=500,p=300,k=3,seedN=seedN) 
+# n is number of bulk samples
+# p is number of signature genes
+
+bulk=sim_data1$bulk # simulated bulk rna-seq data, p*n
+sig=sim_data1$sig # simulated signature matrix, p*K
+
+############ Estimation ##################
 CTS_proportion=constraint_ols(sig=sig,bulk=bulk)
+# bulk: bulk rna-seq data
+# sig: signature matrix
+# output: cell type sepcific proportions, n*K
+
+
 lambda_ols <- tune_select(y_all=bulk,W=t(sig),propor_est=t(CTS_proportion),lambda_set=seq(0,0.5,by=0.025),tune_method="sequential")
+# select tuning parameter
+# lambda_set: the candidate values for tuning parameters
+# output: a list. The first element is tuning parameter value. The second one the related errors.
+
 sigma_ols0<-sigma_upt0(propor_all=t(CTS_proportion),y_all=bulk,W=t(sig),lambda_all=lambda_ols[[1]])
+# lambda_all: the tuning parameters used to estimate cell type specific covariance
+# output: a list. Each element is one covariance matrix.
 
 CTS_proportion_var=propor_cov0(W=t(sig),sigma_all=sigma_ols,propor_all=t(CTS_proportion))
+# output: a matrix for the variance of cell type specific proportions.
+# Each row is one bulk sample. Each column is one cell type.
+
 dim(CTS_proportion_var) # CTS_proportions_var * samples
+
+# put all results in one list. The first element is CTS proportions and the second one is the related variance.
 decals_res=list(CTS_proportion=CTS_proportion,CTS_proportion_var=CTS_proportion_var)
 
 ##############################################################################################################
@@ -22,9 +45,11 @@ decals_res=list(CTS_proportion=CTS_proportion,CTS_proportion_var=CTS_proportion_
 # Once you have the result, the code "vioplot_sim1_2.R" can be used to get the plot of coverage probability.
 ##############################################################################################################
 
-ols_res=ols_result(bulk=bulk,sig=sig)
+################# get the result for OLS #####################
+ols_res=ols_result(bulk=bulk,sig=sig) 
 
 
+################# get the result for MEAD ###################
 p=300
 id1=1:(p/3);id2=(p/3+1):(2*p/3);id3=(2*p/3+1):p
 sigma0_1=sigma_gen(p=100,rho=0.7,type="AR")
@@ -40,11 +65,13 @@ sigma3[id3,id3]=sigma0_2;sigma3[id1,id1]=sigma3[id2,id2]=sigma0_1
 library(MEAD)
 R01=matrix(0,p,p)
 net0=sigma1+sigma2+sigma3
-R01[which(net0!=0)]=1
+R01[which(net0!=0)]=1 # the true binary network structure
 mead_res=MEAD_est(y=bulk,X=sig,Vg=matrix(0,300,3),R01=R01)
 
 
+#repeat this 100 times with seedN from 1 to 100
 
+################# coverage probability ##########################
 n=500
 k=3
 sd_ols_all=sd_decals_all=sd_mead_all=array(0,dim=c(k,n,100))
@@ -74,7 +101,7 @@ Pi<-t(rdirichlet(n,c(3,2,1)))
 
 
 alpha=0.975
-cp_decals=NULL
+cp_decals=NULL # coverage probability for decals
 for(j in 1:500){
   int_lower=Pi_decals_all[,j,]-qnorm(alpha)*sd_decals_all[,j,]
   int_upper=Pi_decals_all[,j,]+qnorm(alpha)*sd_decals_all[,j,]
@@ -87,7 +114,7 @@ for(j in 1:500){
   cp_decals=rbind(cp_decals,tab1)
 }
 
-cp_ols=NULL
+cp_ols=NULL # coverage probability for ols
 for(j in 1:500){
   int_lower=Pi_ols_all[,j,]-qnorm(alpha)*sd_ols_all[,j,]
   int_upper=Pi_ols_all[,j,]+qnorm(alpha)*sd_ols_all[,j,]
@@ -101,7 +128,7 @@ for(j in 1:500){
 }
 
 
-cp_mead=NULL
+cp_mead=NULL # coverage probability for mead
 for(j in 1:500){
   int_lower=Pi_mead_all[,j,]-qnorm(alpha)*sd_mead_all[,j,]
   int_upper=Pi_mead_all[,j,]+qnorm(alpha)*sd_mead_all[,j,]
@@ -116,7 +143,7 @@ for(j in 1:500){
 
 library(vioplot)
 par(mfrow=c(1,3))
-for(k in 1:3){
+for(k in 1:3){ # vioplot of coverage probability
   result=cbind(cp_ols[,k],cp_mead[,k],cp_decals[,k])
   colnames(result)=c("OLS","MEAD","DECALS")
   vioplot(result,col=c("grey","lightcoral","skyblue"),#axes=FALSE,
@@ -128,15 +155,13 @@ par(mfrow=c(1,1))
 
 ##################### GLS #############################
 source(paste0(path,"code/jointalg.R"))
-y_all=bulk
-W=t(sig)
-joint_est=joint_model(W,y_all,lambda_all)
-CTS_proportion=joint_est$pi_est
+joint_est=joint_model(W,y_all,lambda_all) # jointly estimate CTS proportion and CTS covariance.
+CTS_proportion=joint_est$pi_est # CTS proportion for GLS
 CTS_proportion_var=propor_cov0(W=t(sig),sigma_all=joint_est$sigma_est,propor_all=t(CTS_proportion))
 
 load(file=paste0(path,"data/sim1/gls_cp.RData"))
 par(mfrow=c(1,3))
-for(k in 1:3){
+for(k in 1:3){ # vioplot of coverage probability
   result=gls_cp[[k]]
   colnames(result)=c("OLS true","GLS true","OLS est","GLS est")
   vioplot(result,col=c("mistyrose","skyblue"),axes=FALSE,
@@ -148,13 +173,18 @@ par(mfrow=c(1,1))
 
 ##################### Noise #############################
 seedN=1
-sim_data1=data_gen1_noise(n=500,p=300,k=3,seedN=seedN,noise=0.1)
+
+# simulate data with observing signature matrix with some noise
+sim_data1=data_gen1(n=500,p=300,k=3,seedN=seedN,noise=0.1)
 #a = noise, it can be specified as 0.1,0.2,...,1
 bulk=sim_data1$bulk
 sig=sim_data1$sig
-CTS_proportion=constraint_ols(sig=sig,bulk=bulk)
+
+
+CTS_proportion=constraint_ols(sig=sig,bulk=bulk) # CTS proportion estimation
 lambda_ols <- tune_select(y_all=bulk,W=t(sig),propor_est=t(CTS_proportion),lambda_set=seq(0,0.5,by=0.025),tune_method="sequential")
 sigma_ols0<-sigma_upt0(propor_all=t(CTS_proportion),y_all=bulk,W=t(sig),lambda_all=lambda_ols[[1]])
+# CTS covariance estimation
 
 CTS_proportion_var=propor_cov0(W=t(sig),sigma_all=sigma_ols,propor_all=t(CTS_proportion))
 dim(CTS_proportion_var) # CTS_proportions_var * samples
@@ -166,7 +196,7 @@ n=500
 k=3
 sd_decals_all=array(0,dim=c(k,n,100))
 Pi_decals_all=array(0,dim=c(k,n,100))
-for(i in 1:100){
+for(i in 1:100){ 
   load(paste(path,"data/sim1/noise1/decals_res_",i,".RData",sep=""))
   Pi_decals_all[,,i]=t(decals_res$CTS_proportion)
   sd_decals_all[,,i]=sqrt(decals_res$CTS_proportion_var)
@@ -198,7 +228,7 @@ for(j in 1:10){
 colnames(cell1)=colnames(cell2)=colnames(cell3)=seq(0.1,1,by=0.1)
 noise_cp=list(cell1=cell1,cell2=cell2,cell3=cell3)
 par(mfrow=c(3,1))
-for(k in 1:3){
+for(k in 1:3){ # vioplot of coverage probability for sensitivity analysis
   result=noise_cp[[k]]
   vioplot(result,col=c("skyblue"),#axes=FALSE,
           main=paste("Cell",k),ylim=c(0,1),outline=FALSE,
@@ -220,19 +250,21 @@ palPos <- colorRampPalette(c("white", "red"), space = "rgb")
 palNeg <- colorRampPalette(c("blue", "white"), space = "rgb")
 coul <- c(palNeg(20), palPos(20))
 
-
-pheatmap(sigma1, color = coul,#rev(coul(20))
+# heatplot for sigma1 
+pheatmap(sigma1, color = coul,#rev(coul(20)) 
          cluster_rows = F, cluster_cols = F,
          breaks = seq(-1, 1, by = 0.05),
          na_col = 'grey',
          show_rownames = F, show_colnames = F)
 
+# heatplot for sigma2
 pheatmap(sigma2, color = coul,#rev(coul(20))
          cluster_rows = F, cluster_cols = F,
          breaks = seq(-1, 1, by = 0.05),
          na_col = 'grey',
          show_rownames = F, show_colnames = F)
 
+# heatplot for sigma3
 pheatmap(sigma3, color = coul,#rev(coul(20))
          cluster_rows = F, cluster_cols = F,
          breaks = seq(-1, 1, by = 0.05),
