@@ -4,8 +4,8 @@ source(paste0(path,"code/DECALS.R"))
 ########################################################
 ################# GTEx Data Analysis ###################
 ########################################################
-load(file=paste0(path,"data/gtex/bulk.RData"))
-load(file=paste0(path,"data/gtex/sig.RData"))
+load(file=paste0(path,"data/gtex/bulk.RData")) # bulk expression
+load(file=paste0(path,"data/gtex/sig.RData")) # signature matrix
 
 ########### CTS proportion estimation ##############
 CTS_proportion=constraint_ols(sig=sig,bulk=bulk)
@@ -25,14 +25,15 @@ dim(CTS_proportion_var) # CTS_proportions_var * samples
 
 ########## Simulate 100 CTS proportions ##################
 # this returns a list of covariance matrix
+# each element is one K*K  covariance matrix for cts proportions
 CTS_proportion_var=propor_cov(W=t(sig),sigma_all=sigma_ols,propor_all=t(CTS_proportion))
 
 seedN=1
 library(mvtnorm)
 set.seed(seedN)
-CTS_proportion_seedN <- sapply(1:n,function(i) {
+CTS_proportion_seedN <- sapply(1:n,function(i) { # generate cts proportion by estimated mean and covariance
   frac1=rmvnorm(1,mean=CTS_proportion[i,],sigma=CTS_proportion_var[[i]])
-  frac1[frac1<0]=0;frac1[frac1>1]=1
+  frac1[frac1<0]=0;frac1[frac1>1]=1 # control them between 0 and 1
   frac1/sum(frac1)
 } )
 frac_one=t(frac_one)
@@ -40,8 +41,8 @@ frac_one=t(frac_one)
 ####################################################
 ################ bMIND Analysis ####################
 ####################################################
-load(file=paste0(path,"data/gtex/frac0.RData"))
-load(file=paste0(path,"data/gtex/y.RData"))
+load(file=paste0(path,"data/gtex/frac0.RData")) # cts proportion
+load(file=paste0(path,"data/gtex/y.RData")) # group label
 library(MIND)
 colnames(bulk) = rownames(frac0) = 1:nrow(frac0)
 deconv = bmind_de(bulk1[1:5,], frac=frac0, y = y, np = T,ncore=1)
@@ -50,16 +51,17 @@ deconv = bmind_de(bulk1[1:5,], frac=frac0, y = y, np = T,ncore=1)
 #The following code shows how we obtain the DE gene sets and map them on chrosomes X and Y.
 
 load(file=paste0(path,"data/gtex/datProbes.RData"))
+# this data provides the information in each chromosome
 
 chr_names=c(1:22,"X","Y")
 
-chr_genes_table <- function(gene_sets){
+chr_genes_table <- function(gene_sets){ # calculate the number and ratio of selected genes on each chromosome
   gene_chr_num=gene_chr_ratio=NULL
   for(chr in chr_names){
-    gene_sets_chr=probes$external_gene_name[probes$chromosome_name==chr]
+    gene_sets_chr=probes$external_gene_name[probes$chromosome_name==chr] # genes on chr
     gene_chr=match(gene_sets,gene_sets_chr)
-    gene_chr_num=c(gene_chr_num,sum(!is.na(gene_chr)) )
-    gene_chr_ratio=c(gene_chr_ratio,sum(!is.na(gene_chr))/length(gene_sets_chr))
+    gene_chr_num=c(gene_chr_num,sum(!is.na(gene_chr)) ) # number of DE genes on chr
+    gene_chr_ratio=c(gene_chr_ratio,sum(!is.na(gene_chr))/length(gene_sets_chr)) # ratio of DE genes on chr
   }
   rbind(gene_chr_num,gene_chr_ratio)
 }
@@ -68,14 +70,16 @@ chr_genes_table <- function(gene_sets){
 p_thr=0.05
 
 load(file=paste0(path,"data/gtex/pval_all0.RData"))
+# p value for testing the difference in two groups by bMIND
+# number of genes * number of cell types
 
 CTS_chr=lapply(1:6,function(k)array(0,dim=c(3,24,100)))
 gene_sets_sel=vector("list")
 for(k in 1:6){
-  pval_adjust=p.adjust(pval_all[,k],method="BH")
-  gene_sets=rownames(pval_all)[pval_adjust<p_thr]
+  pval_adjust=p.adjust(pval_all[,k],method="BH") # adjust p value
+  gene_sets=rownames(pval_all)[pval_adjust<p_thr] # select genes by adjusted p value
   gene_sets_sel[[k]]=gene_sets
-  result=chr_genes_table(gene_sets)
+  result=chr_genes_table(gene_sets) # get the number and ratio of DE genes on each chr
   ratio2=result[1,]/length(gene_sets)
   result=rbind(result,ratio2)
   colnames(result)=chr_names
@@ -86,6 +90,8 @@ gene_num0=sapply(1:6,function(k)length(gene_sets_sel[[k]]))
 
 
 CTS_chr1=lapply(1:6,function(k)array(0,dim=c(3,24,100)))
+
+# select DE genes for first replication
 gene_sets_all=vector("list")
 load(file=paste0(path,"data/gtex/pval_all",1,".RData"))
 for(k in 1:6){
@@ -94,6 +100,7 @@ for(k in 1:6){
   gene_sets_all[[k]]=gene_sets
 }
 
+# select DE genes for 2-100 replication
 for(i in 2:100){
   load(file=paste0(path,"data/gtex/pval_all",i,".RData"))
   for(k in 1:6){
@@ -102,29 +109,30 @@ for(i in 2:100){
     gene_sets_all[[k]]=c(gene_sets_all[[k]],gene_sets)
   }
 }
+# gene_sets_all save all DE genes for 100 replication
 
 gene_sets_sel1=gene_sets_all
 for(k in 1:6){
-  gene_hist=table(gene_sets_all[[k]])
+  gene_hist=table(gene_sets_all[[k]]) # get the frequency of each genes with adjusted value less than 0.05
   gene_sel1_id=order(gene_hist,decreasing=TRUE)
-  thr=gene_hist[gene_sel1_id[gene_num0[k]]]
-  gene_sets=names(gene_hist)[which(gene_hist>=thr)]
+  thr=gene_hist[gene_sel1_id[gene_num0[k]]] # control the number of DE genes
+  gene_sets=names(gene_hist)[which(gene_hist>=thr)] # get DE genes
   gene_sets_sel1[[k]]=gene_sets
-  result=chr_genes_table(gene_sets)
-  ratio2=result[1,]/length(gene_sets)
+  result=chr_genes_table(gene_sets) # get the number of DE genes in each chromosome
+  ratio2=result[1,]/length(gene_sets) # get the ratio
   if(length(gene_sets)==0) ratio2=rep(0,24)
   result=rbind(result,ratio2)
   CTS_chr1[[k]]=result
 }
 
 
-x_data=matrix(0,2,6)
+x_data=matrix(0,2,6) # proportions of DE genes on Chromosome X
 for(k in 1:6){
   x_data[,k]=c(CTS_chr[[k]][3,23],CTS_chr1[[k]][3,23])
 }
 rownames(x_data) = c("bMIND","bMIND+DECALS")
 colnames(x_data)=cell_names
-y_data=matrix(0,2,6)
+y_data=matrix(0,2,6) # proportions of DE genes on Chromosome Y
 for(k in 1:6){
   y_data[,k]=c(CTS_chr[[k]][3,24],CTS_chr1[[k]][3,24])
 }
@@ -135,16 +143,27 @@ y_genes=y_data
 
 
 load(file=paste0(path,"data/gtex/genes_x.RData"))
+# genes on chromosome X, a list with male gene and female gene
+# male_gene: gene expression in male is greater than female
+# female_gene: gene expression in female is greater than male
 load(file=paste0(path,"data/gtex/genes_y.RData"))
+# genes on chromosome Y, a list with male gene and female gene
+# male_gene: gene expression in male is greater than female
+# female_gene: gene expression in female is greater than male
+
 load(file=paste0(path,"data/gtex/pval_all0.RData"))
 xy_over <- function(genes_sets,genes_x,genes_y){
   xy_info=NULL
   for(k in 1:6){
     #pval_adjust=p.adjust(pval_all[,k],method="BH")
     gene_sets=genes_sets[[k]]
+    # number of DE genes on X with a greater expression on male
     gene_sets_xmale=sum(duplicated(c(names(genes_x$male_gene),gene_sets)))
+    # number of DE genes on X with a greater expression on female
     gene_sets_xfemale=sum(duplicated(c(names(genes_x$female_gene),gene_sets)))
+    # number of DE genes on Y with a greater expression on male
     gene_sets_ymale=sum(duplicated(c(names(genes_y$male_gene),gene_sets)))
+    # number of DE genes on Y with a greater expression on female
     gene_sets_yfemale=sum(duplicated(c(names(genes_y$female_gene),gene_sets)))
     xy_info=rbind(xy_info,c(gene_sets_xmale,gene_sets_xfemale,gene_sets_ymale,gene_sets_yfemale))
   }
@@ -174,8 +193,8 @@ CTS_chr2=lapply(1:6,function(k)array(0,dim=c(3,24,100)))
 gene_sets_all=vector("list")
 load(file=paste0(path,"data/gtex/pval_all",1,".RData"))
 for(k in 1:6){
-  pval_adjust=p.adjust(pval_all[,k],method="BH")
-  gene_sets=rownames(pval_all)[pval_adjust<p_thr]
+  pval_adjust=p.adjust(pval_all[,k],method="BH") # adjust p value
+  gene_sets=rownames(pval_all)[pval_adjust<p_thr] # select DE genes by adjusted p value
   gene_sets_sel[[k]]=gene_sets
   result=chr_genes_table(gene_sets)
   ratio2=result[1,]/length(gene_sets)
@@ -187,8 +206,8 @@ for(k in 1:6){
 for(i in 2:100){
   load(file=paste0(path,"data/gtex/pval_all",i,".RData"))
   for(k in 1:6){
-    pval_adjust=p.adjust(pval_all[,k],method="BH")
-    gene_sets=rownames(pval_all)[pval_adjust<p_thr]
+    pval_adjust=p.adjust(pval_all[,k],method="BH") # adjust p value
+    gene_sets=rownames(pval_all)[pval_adjust<p_thr] # select DE genes by adjusted p value
     gene_sets_sel[[k]]=gene_sets
     result=chr_genes_table(gene_sets)
     ratio2=result[1,]/length(gene_sets)
@@ -199,7 +218,7 @@ for(i in 2:100){
 }
 
 CTS_chr_sd=array(0,dim=c(6,2))
-for(k in 1:6){
+for(k in 1:6){ # get the standard deviation from 100 replications
   CTS_chr_sd[k,1]=sd(CTS_chr2[[k]][3,23,!is.nan(CTS_chr2[[k]][3,23,])])
   CTS_chr_sd[k,2]=sd(CTS_chr2[[k]][3,24,!is.nan(CTS_chr2[[k]][3,24,])])
 }
@@ -209,7 +228,7 @@ CTS_chr_sd=CTS_chr_sd/10
 
 
 tab1_x=tab1_y=matrix(0,100,6)
-for(i in 1:100){
+for(i in 1:100){ # get the proportions on for all four plots
   load(file=paste0(path,"data/gtex/pval_all",i,".RData"))
   gene_sets_sel1=vector("list")
   for(k in 1:6){
@@ -224,7 +243,7 @@ for(i in 1:100){
 }
 
 sex_de_sd=matrix(0,6,2)
-for(k in 1:6){
+for(k in 1:6){ #get the standard deviation for all four plots
   sex_de_sd[k,1]=sd(tab1_x[!is.nan(tab1_x[,k]),k])
   sex_de_sd[k,2]=sd(tab1_y[!is.nan(tab1_y[,k]),k])
 }
@@ -284,13 +303,13 @@ par(mfrow=c(1,1))
 
 
 ############### CTS proportions #####################
-load(file=paste0(path,"data/gtex/y.RData"))
-load(file=paste0(path,"data/gtex/frac0.RData"))
+load(file=paste0(path,"data/gtex/y.RData")) # group label
+load(file=paste0(path,"data/gtex/frac0.RData")) # cts proportion
 y[y==1]="Female"
 y[y==0]="Male"
 library(vioplot)
 par(mfrow=c(1,6))
-for(k in 1:6){
+for(k in 1:6){ # vioplot for two group cts proportions
   vioplot(frac0[,k]~y,col=c("lightcoral","lightgreen"),xlab=NULL,ylab=NULL,
           main=cell_names[k],ylim=c(0,0.8),outline=FALSE)
 }
@@ -303,7 +322,7 @@ boxplot(sample_cor,outline=FALSE,main="Correlations in GTEx Data")
 bulk_log=log(bulk+1)
 bulk_est_log=log(bulk_est+1)
 par(mfrow=c(3,3))
-for(i in 1:9){
+for(i in 1:9){ # compare the observed and estimated bulk expression
   plot(bulk_log[,i],bulk_est_log[,i],xlab="Observed",ylab="Estiamted",main=colnames(bulk_log)[i])
   lim_val=min(c(max(bulk_log[,i])),max(bulk_est_log[,i]))
   lines(x=c(0,lim_val),y=c(0,lim_val),col=2,lty=2)
