@@ -3,29 +3,41 @@
 ############################################################
 library(quadprog)
 library(gtools)
-# sig: signature matrix, genes * cell types
-# bulk: bulk, genes * samples
+
 constraint_ols <- function(sig, bulk){ 
+  # sig: signature matrix, genes * cell types
+  # bulk: bulk, genes * samples
+  # output: CTS proportions, n*K
+  
   p=dim(sig)[1];K=dim(sig)[2];n=dim(bulk)[2]
-  A=cbind(rep(1,K),diag(K))
-  b0=c(1,rep(0,K))
+  # p: number of signature genes
+  # K: number of cell types
+  # n: number of bulk samples
+  
+  
+  A=cbind(rep(1,K),diag(K)) # A and b0 are used for constraints
+  b0=c(1,rep(0,K)) # A\pi=b0
   D=t(sig)%*%sig/n
   
   frac0=NULL
   for(i in 1:n){
     d=bulk[,i]%*%sig/n
-    frac0=rbind(frac0,solve.QP(Dmat=D/abs(max(d)),dvec=d/abs(max(d)),Amat=A,bvec=b0,meq=1)$solution)
+    frac0=rbind(frac0,solve.QP(Dmat=D/abs(max(d)),dvec=d/abs(max(d)),Amat=A,bvec=b0,meq=1)$solution) # constraint ols
   }
   #frac0[frac0<0]=0
   return(frac0)
 }
 
+
 ###################################################################
 ################### Proportion Variance ###########################
 ###################################################################
-scad_filter <- function(x,lambda,a=3.7){
-  signx=sign(x)
-  if(abs(x)<= 2*lambda){
+scad_filter <- function(x,lambda,a=3.7){ # SCAD threshold for one element
+  # x: one value
+  # lambda: the tuning paramter in SCAD
+  # output: the value after scad
+  signx=sign(x) # keep the sign of x
+  if(abs(x)<= 2*lambda){ 
     x0=signx*max(abs(x)-lambda,0)
   }else if(abs(x)<a*lambda){
     x0=signx*(lambda+(a-1)/(a-2)*(abs(x)-2*lambda) )
@@ -35,24 +47,27 @@ scad_filter <- function(x,lambda,a=3.7){
   return(x0)
 }
 
-near_posmat <- function(x,e0=0.001){
-  x0=(x+t(x))/2
-  dimx=nrow(x0)
-  va=eigen(x0)$values
+near_posmat <- function(x,e0=0.001){ # find the nearest positive deinite matrix
+  x0=(x+t(x))/2 # make it to be symmetric
+  dimx=nrow(x0) # get its dimension
+  va=eigen(x0)$values # get the eigenvalues of x0
   va[va<0]=0
   ve=eigen(x0)$vectors
   z=ve%*%diag(va)%*%t(ve)
   z+e0*diag(rep(1,dimx))
 }
 
-cor_filter <- function(mat0,lambda0,a=3.7){
+cor_filter <- function(mat0,lambda0,a=3.7){ # apply scad for a matrix
+  # mat: p*p matrix
+  # lambda0: tuning paramter for scad
+  # output: p*p matrix
   D0=diag(mat0)
-  id0=which(D0>0)
+  id0=which(D0>0) # we only keep the row and column with positive variance
   if(length(id0)>1){
-    mat1=diag(D0[id0]^{-1/2})%*%mat0[id0,id0]%*%diag(D0[id0]^{-1/2})
+    mat1=diag(D0[id0]^{-1/2})%*%mat0[id0,id0]%*%diag(D0[id0]^{-1/2}) # get the correlation matrix
     mat1[mat1>1]=0;mat1[mat1< -1]=0;diag(mat1)=1
-    mat2=apply(mat1,c(1,2),scad_filter,lambda=lambda0,a=a)
-    mat3=diag(D0[id0]^{1/2})%*%mat2%*%diag(D0[id0]^{1/2})
+    mat2=apply(mat1,c(1,2),scad_filter,lambda=lambda0,a=a) # apply scad for correlation matrix
+    mat3=diag(D0[id0]^{1/2})%*%mat2%*%diag(D0[id0]^{1/2}) # transform it back to covariance matrix
     mat=matrix(0,length(D0),length(D0))
     mat[id0,id0]=mat3
   }else{
@@ -61,8 +76,8 @@ cor_filter <- function(mat0,lambda0,a=3.7){
   mat
 }
 
-sigma_error0 <- function(sigma_all1,sigma_all2){
-  K=length(sigma_all1)
+sigma_error0 <- function(sigma_all1,sigma_all2){ #calculate the error for covariance matrices
+  K=length(sigma_all1) # number of cell types
   err0=NULL
   for(k in 1:K){
     err0=c(err0,sqrt(sum((sigma_all1[[k]]-sigma_all2[[k]])^2)) )
@@ -70,7 +85,7 @@ sigma_error0 <- function(sigma_all1,sigma_all2){
   err0
 }
 
-cor_est <-function(mat0){
+cor_est <-function(mat0){ # get the correlation matrix
   D0=diag(mat0)
   id0=which(D0>0)
   mat1=diag(D0[id0]^{-1/2})%*%mat0[id0,id0]%*%diag(D0[id0]^{-1/2})
@@ -79,7 +94,7 @@ cor_est <-function(mat0){
   mat
 }
 
-var_b <- function(x,sigma){
+var_b <- function(x,sigma){ # calculate the variance with constraint
   p=nrow(x); K=ncol(x)
   A=matrix(1,1,K)
   G_inv=solve(t(x)%*%x/p)
@@ -88,18 +103,25 @@ var_b <- function(x,sigma){
   var0/p
 }
 
-var_b1 <-function(x,sigma0){
+var_b1 <-function(x,sigma0){ # calculate the variance without considering gene dependence
   var0=sigma0*solve(t(x)%*%x/p)
   var0/p
 }
 
 propor_cov0 <- function(W,sigma_all=NULL,propor_all,sigma_val=NULL){ # the estimation of var(pi)
-  K=nrow(propor_all)
-  n=ncol(propor_all)
-  p=ncol(W)
+  # W: signature matrix, K*p
+  # sigma_all: cts covariance if we use decals
+  # propor_all: cts proportions
+  # sigma_val: cts covariance if we use ols
+  # ouput: n*K matrix, eacl element is the variance for one proportion
+  # each row is one bulk, each column is one cell type
+  
+  K=nrow(propor_all) # number of cell types
+  n=ncol(propor_all) # number of bulk samples
+  p=ncol(W) # number of signature genes
   if(is.null(sigma_val)){
     all_cov=sapply(1:n,function(i){
-      sigma0=sigma_all[[1]]*propor_all[1,i]^2
+      sigma0=sigma_all[[1]]*propor_all[1,i]^2 # using cts proportion and cts covariance to get the error variance
       for(k in 2:K) sigma0=sigma0+sigma_all[[k]]*propor_all[k,i]^2
       #sigma1=near_posmat(sigma0,e0=0)
       cov0=var_b(x=t(W),sigma=sigma0)
@@ -116,7 +138,13 @@ propor_cov0 <- function(W,sigma_all=NULL,propor_all,sigma_val=NULL){ # the estim
 }
 
 
-propor_cov_1 <- function(W,propor_all,sigma_val=NULL){ # the estimation of var(pi)
+propor_cov_1 <- function(W,propor_all,sigma_val=NULL){ # the estimation of var(pi) for OLS
+  # W: signature matrix, K*p
+  # propor_all: cts proportions
+  # sigma_val: cts covariance if we use ols
+  # ouput: n*K matrix, eacl element is the variance for one proportion
+  # each row is one bulk, each column is one cell type
+  
   K=nrow(propor_all)
   n=ncol(propor_all)
   p=ncol(W)
@@ -128,8 +156,13 @@ propor_cov_1 <- function(W,propor_all,sigma_val=NULL){ # the estimation of var(p
   all_cov
 }
 
-
-propor_cov <- function(W,sigma_all=NULL,propor_all,sigma_val=NULL){ # the estimation of var(pi)
+propor_cov <- function(W,sigma_all=NULL,propor_all,sigma_val=NULL){ # the estimation of var(pi) 
+  # W: signature matrix, K*p
+  # sigma_all: cts covariance if we use decals
+  # propor_all: cts proportions
+  # sigma_val: cts covariance if we use ols
+  # ouput: length n list, each element is the covariance of cell tye proportions, K*K matrix
+  
   K=nrow(propor_all)
   n=ncol(propor_all)
   p=ncol(W)
@@ -152,6 +185,7 @@ propor_cov <- function(W,sigma_all=NULL,propor_all,sigma_val=NULL){ # the estima
   all_cov
 }
 
+
 var_cal <-function(x){
   n=length(x)
   sum(x^2)/(n-1)
@@ -159,7 +193,12 @@ var_cal <-function(x){
 
 
 
-sigma_gen <- function(p,rho,type){
+sigma_gen <- function(p,rho,type){ # generate cts covariance
+  # p: number of signature genes
+  # rho: correlation for full conneted network
+  # type: MS, AR or full
+  # outpu: p*p matrix
+  
   if(type=="MA"){
     sigma0=matrix(rho,p,p)
     sigma0[abs(row(sigma0)-col(sigma0))>1]<-0
@@ -185,7 +224,7 @@ cor_est <-function(mat0){
   mat
 }
 
-pi_random_cor <- function(pi_est,pi_cov_est){
+pi_random_cor <- function(pi_est,pi_cov_est){ # finite sample correction
   K=length(pi_est)
   term1=matrix(0,K,K)
   for(i in 1:K){
@@ -202,12 +241,18 @@ pi_random_cor <- function(pi_est,pi_cov_est){
   term
 }
 
-sigma_upt0 <- function(propor_all,y_all,W,lambda_all=lambda_all){
+sigma_upt0 <- function(propor_all,y_all,W,lambda_all=lambda_all){ # estimate cts covariance matrix
+  # propor_all: cts proportion, K*n matrix
+  # y_all: bulk expression matrix, p*n matrix
+  # W: signature matrix, K*p
+  # lambda_all: the tuning parameters for scad
+  # output: a list. Each element is one p*p matrix.
+  
   K<-nrow(propor_all); p<-nrow(y_all); n=ncol(propor_all)
   # centralization
   y_center <- y_all-t(W)%*%propor_all
   #var_y <- apply(y_center,2,function(x) x%*%t(x) )
-  dis=n%/%20
+  dis=n%/%20 # to avoid big matrix calculation, we divide it into 20 small matrices
   id=vector("list")
   for(j in 1:19){
     id[[j]]=(j*dis-dis+1):(j*dis)
@@ -259,12 +304,17 @@ sigma_upt0 <- function(propor_all,y_all,W,lambda_all=lambda_all){
 }
 
 
-tune_select <- function(y_all,W,propor_est,lambda_set,tune_method="sequential"){
-  p=nrow(y_all)
-  n=ncol(y_all)
-  K=nrow(W)
-  n1=n%/%2
-  id1=sample(1:n,n1)
+tune_select <- function(y_all,W,propor_est,lambda_set,tune_method="sequential"){ # select tuning parameter
+  # y_all: bulk expression matrix, p*n matrix
+  # W: signature matrix, K*p
+  # lambda_set: the candidate values for tuning parameters
+  # output: a list. The first element is tuning parameter value. The second one the related errors.
+  
+  p=nrow(y_all) # number of signature genes
+  n=ncol(y_all) # number of bulk samples
+  K=nrow(W) # number of cell types
+  n1=n%/%2 
+  id1=sample(1:n,n1) # randomly split the data into two folders
   id2=(1:n)[-id1]
   y_all1=y_all[,id1]
   y_all2=y_all[,id2]
@@ -273,7 +323,7 @@ tune_select <- function(y_all,W,propor_est,lambda_set,tune_method="sequential"){
     err=matrix(0,K,n_lam)
     lambda_opt=rep(lambda_set[1],K)
     for(k in 1:K){
-      for(j in 1:n_lam){
+      for(j in 1:n_lam){ # calculate the error in different lambda
         lambda_opt[k]=lambda_set[j]
         res1=sigma_upt0(propor_all=propor_est[,id1],y_all=y_all1,W,lambda_all=rep(0,K))
         res2=sigma_upt0(propor_all=propor_est[,id2],y_all=y_all2,W,lambda_all=lambda_opt)
@@ -292,7 +342,13 @@ tune_select <- function(y_all,W,propor_est,lambda_set,tune_method="sequential"){
 ############################################################
 ############ Data Setting  #################################
 ############################################################
-data_gen1 <- function(n,p,k,seedN){
+data_gen1 <- function(n,p,k,seedN){ # data generation for simulation 1
+  # n: number of bulk samples
+  # p: number of signature genes
+  # K: number of cell types
+  # seedN: fix the seed for data generation
+  # output: a list, first element is bulk data, second element is signature matrix
+  
   library(mvtnorm)
   id1=1:(p/3);id2=(p/3+1):(2*p/3);id3=(2*p/3+1):p
   
@@ -328,7 +384,14 @@ data_gen1 <- function(n,p,k,seedN){
 }
 
 
-data_gen1_noise<- function(n,p,k,seedN,noise){
+data_gen1_noise<- function(n,p,k,seedN,noise){ 
+  # data generation for simulation 1 with observing the noised signature matrix
+  # n: number of bulk samples
+  # p: number of signature genes
+  # K: number of cell types
+  # seedN: fix the seed for data generation
+  # output: a list, first element is bulk data, second element is signature matrix
+  
   library(mvtnorm)
   id1=1:(p/3);id2=(p/3+1):(2*p/3);id3=(2*p/3+1):p
   
@@ -365,7 +428,14 @@ data_gen1_noise<- function(n,p,k,seedN,noise){
 }
 
 
-rmultigamma <- function(n,p,cor_mat,shape,scale){
+rmultigamma <- function(n,p,cor_mat,shape,scale){ # generate mutigamma data with a correlation structure
+  # n: number of bulk samples
+  # p: number of signature genes
+  # cor_mat: correlation matrix
+  # shape: shape parameter in gamma distribution
+  # scale: scale parameter in gamma distribution
+  # output: bulk expression for p genes, n*p matrix
+  
   cor_mat_up <- chol(cor_mat)
   copula <- matrix(rnorm(n*p),nrow = n)
   copula <- pnorm(t(cor_mat_up)%*%t(copula))
@@ -380,8 +450,14 @@ rmultigamma <- function(n,p,cor_mat,shape,scale){
 
 
 data_gen2 <- function(frac0,sig,sigma_ols0,seedN){
+  # frac0: cts proportions
+  # sig: signature matrix
+  # sigma_ols0: cts covariance
+  # seedN: fix the seed for data generation
+  # output: a list, first element is bulk data, second element is signature matrix
+  
   p=nrow(sig)
-  W=t(sig)
+  
   Pi=t(frac0)
   n=nrow(frac0)
   
@@ -412,6 +488,12 @@ data_gen2 <- function(frac0,sig,sigma_ols0,seedN){
 
 
 data_gen3 <- function(frac0,sig,sigma_ols0,seedN){
+  # frac0: cts proportions
+  # sig: signature matrix
+  # sigma_ols0: cts covariance
+  # seedN: fix the seed for data generation
+  # output: a list, first element is bulk data, second element is signature matrix
+  
   k=ncol(sig)
   W=t(sig)
   p=nrow(sig)
@@ -436,7 +518,13 @@ data_gen3 <- function(frac0,sig,sigma_ols0,seedN){
 ############################################################
 ##################### OLS  #################################
 ############################################################
-sigma_upt <- function(propor_all,y_all,W,lambda_all,a=3.7,e0=0){
+sigma_upt <- function(propor_all,y_all,W,lambda_all,a=3.7,e0=0){ # the estimation for CTS covariance
+  # propor_all: cts proportion, K*n matrix
+  # y_all: bulk expression matrix, p*n matrix
+  # W: signature matrix, K*p
+  # lambda_all: the tuning parameters for scad
+  # output: a list. Each element is one p*p matrix.
+  
   K<-nrow(propor_all); p<-nrow(y_all); n=ncol(propor_all)
   # centralization
   y_center <- y_all-t(W)%*%propor_all
@@ -462,6 +550,11 @@ sigma_upt <- function(propor_all,y_all,W,lambda_all,a=3.7,e0=0){
 }
 
 tune_select0 <- function(y_all,W,propor_est,lambda_set,tune_method="sequential"){
+  # y_all: bulk expression matrix, p*n matrix
+  # W: signature matrix, K*p
+  # lambda_set: the candidate values for tuning parameters
+  # output: a list. The first element is tuning parameter value. The second one the related errors.
+  
   p=nrow(y_all)
   n=ncol(y_all)
   K=nrow(W)
@@ -493,6 +586,10 @@ tune_select0 <- function(y_all,W,propor_est,lambda_set,tune_method="sequential")
 }
 
 ols_result<-function(bulk,sig){
+  # bulk: bulk expression data, n*p
+  # sig: signature matrix, p*K
+  # output: a list, first element is cts proportion, second element is cts covariance
+  
   p=dim(sig)[1];K=dim(sig)[2];n=dim(bulk)[2]
   A=cbind(rep(1,K),diag(K))
   b0=c(1,rep(0,K))
